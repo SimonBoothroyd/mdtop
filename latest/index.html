@@ -505,6 +505,39 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Getting Started">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#creating-a-topology" class="md-nav__link">
+    <span class="md-ellipsis">
+      Creating a Topology
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#atom-selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      Atom Selection
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#exporting-topologies" class="md-nav__link">
+    <span class="md-ellipsis">
+      Exporting Topologies
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -542,13 +575,80 @@
 </p>
 
 <hr />
-<p>The <code>mdtop</code> framework ...</p>
+<p>The <code>mdtop</code> framework aims to provide a simple, modern, and flexible way to store
+topological information about a system to simulate. While this may be 'yet another
+<code>Topology</code> object', it is designed to take the best of  all worlds from the fantastic
+<code>mdtraj</code>, <code>parmed</code>, and <code>openmm</code> packages, and provide a clean way to store atom
+data, merge multiple topologies, and also select subsets using the ubiquitous <code>PyMol</code>
+atom selection language.</p>
 <h2 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">#</a></h2>
 <p>This package can be installed using <code>conda</code> (or <code>mamba</code>, a faster version of <code>conda</code>):</p>
 <div class="language-shell highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>mamba<span class="w"> </span>install<span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>mdtop
 </span></code></pre></div>
 <h2 id="getting-started">Getting Started<a class="headerlink" href="#getting-started" title="Permanent link">#</a></h2>
-<p>To get started, see the <a href="https://SimonBoothroyd.github.io/mdtop/latest/">documentation</a>.</p>
+<h3 id="creating-a-topology">Creating a Topology<a class="headerlink" href="#creating-a-topology" title="Permanent link">#</a></h3>
+<p>Topologies can be created from a variety of sources. However, the most robust workflows
+typically involve:</p>
+<ul>
+<li><strong>Creating a topology from OpenMM</strong>: Use the <code>Topology.from_openmm()</code> method to import
+  an existing OpenMM topology containing, for example, a protein structure.</li>
+<li><strong>Creating a topology from an RDKit molecule</strong>: Use the <code>Topology.from_rdkit()</code> method
+  to create a topology from an RDKit molecule representation.</li>
+<li><strong>Loading a topology from a file</strong>: Use the <code>Topology.from_file()</code> method to import
+  an existing PDB, SDF, or MOL2 file.</li>
+</ul>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span> <span class="nn">openmm.app</span> <span class="kn">import</span> <span class="n">PDBFile</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="kn">from</span> <span class="nn">rdkit</span> <span class="kn">import</span> <span class="n">Chem</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="kn">from</span> <span class="nn">mdtop</span> <span class="kn">import</span> <span class="n">Topology</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="c1"># Load a protein topology from OpenMM</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="n">protein_top_omm</span> <span class="o">=</span> <span class="n">PDBFile</span><span class="p">(</span><span class="s2">&quot;protein.pdb&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">topology</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="n">protein_top</span> <span class="o">=</span> <span class="n">Topology</span><span class="o">.</span><span class="n">from_openmm</span><span class="p">(</span><span class="n">protein_top_omm</span><span class="p">)</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="c1"># OR</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="n">protein_top</span> <span class="o">=</span> <span class="n">Topology</span><span class="o">.</span><span class="n">from_file</span><span class="p">(</span><span class="s2">&quot;protein.pdb&quot;</span><span class="p">)</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="c1"># Load a ligand using RDKit</span>
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="n">ligand_rd</span> <span class="o">=</span> <span class="n">Chem</span><span class="o">.</span><span class="n">MolFromMolFile</span><span class="p">(</span><span class="s2">&quot;ligand.sdf&quot;</span><span class="p">)</span>
+</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="n">ligand_top</span> <span class="o">=</span> <span class="n">Topology</span><span class="o">.</span><span class="n">from_rdkit</span><span class="p">(</span><span class="n">ligand_rd</span><span class="p">)</span>
+</span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="c1"># OR</span>
+</span><span id="__span-1-16"><a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="n">ligand_top</span> <span class="o">=</span> <span class="n">Topology</span><span class="o">.</span><span class="n">from_file</span><span class="p">(</span><span class="s2">&quot;ligand.sdf&quot;</span><span class="p">)</span>
+</span><span id="__span-1-17"><a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>
+</span><span id="__span-1-18"><a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="c1"># Merge the protein and ligand topologies</span>
+</span><span id="__span-1-19"><a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="n">system_top</span> <span class="o">=</span> <span class="n">Topology</span><span class="o">.</span><span class="n">merge</span><span class="p">(</span><span class="n">protein_top</span><span class="p">,</span> <span class="n">ligand_top</span><span class="p">)</span>
+</span><span id="__span-1-20"><a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="c1"># OR</span>
+</span><span id="__span-1-21"><a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a><span class="n">system_top</span> <span class="o">=</span> <span class="n">protein_top</span> <span class="o">+</span> <span class="n">ligand_top</span>
+</span></code></pre></div>
+<h3 id="atom-selection">Atom Selection<a class="headerlink" href="#atom-selection" title="Permanent link">#</a></h3>
+<p>Subsets of atoms can be selected using a (for now) subset of the
+<a href="(https://pymolwiki.org/index.php/Selection_Algebra)">PyMol atom selection language</a>.</p>
+<p>For example, to select all atoms in chain A:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">selection</span> <span class="o">=</span> <span class="n">system_top</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="s2">&quot;chain A&quot;</span><span class="p">)</span>
+</span></code></pre></div>
+<p>or all atoms within 5 Å of the ligand:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">atom_idxs</span> <span class="o">=</span> <span class="n">system_top</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="s2">&quot;all within 5. of resn LIG&quot;</span><span class="p">)</span>
+</span></code></pre></div>
+<p>A subset of the topology can then be created using the <code>subset()</code> method:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">subset</span> <span class="o">=</span> <span class="n">system_top</span><span class="o">.</span><span class="n">subset</span><span class="p">(</span><span class="n">atom_idxs</span><span class="p">)</span>
+</span></code></pre></div>
+<p>or by indexing directly:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">subset</span> <span class="o">=</span> <span class="n">system_top</span><span class="p">[</span><span class="s2">&quot;chain A&quot;</span><span class="p">]</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="c1"># OR</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">subset</span> <span class="o">=</span> <span class="n">system_top</span><span class="p">[</span><span class="n">atom_idxs</span><span class="p">]</span>
+</span></code></pre></div>
+<h3 id="exporting-topologies">Exporting Topologies<a class="headerlink" href="#exporting-topologies" title="Permanent link">#</a></h3>
+<p>Topologies can be converted back into OpenMM or RDKit formats for further analysis or
+simulation.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Export to OpenMM topology</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">system_top_omm</span> <span class="o">=</span> <span class="n">system_top</span><span class="o">.</span><span class="n">to_openmm</span><span class="p">()</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># Export to RDKit molecule - this currently only works for topologies that contain</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="c1"># full formal charge and bond order information.</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="n">mol_rd</span> <span class="o">=</span> <span class="n">ligand_top</span><span class="o">.</span><span class="n">to_rdkit</span><span class="p">()</span>
+</span></code></pre></div>
+<p>They can also be directly written to a file:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">system_top</span><span class="o">.</span><span class="n">to_file</span><span class="p">(</span><span class="s2">&quot;system.pdb&quot;</span><span class="p">)</span>
+</span></code></pre></div>
 
 
 
