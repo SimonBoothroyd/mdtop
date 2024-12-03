@@ -192,6 +192,16 @@ def test_topology_rdkit_roundtrip():
     assert numpy.allclose(expected_coords, roundtrip_coords)
 
 
+def test_topology_rdkit_unique_names():
+    mol = Chem.AddHs(Chem.MolFromSmiles("C"))
+
+    topology = Topology.from_rdkit(mol, "ABC", "E")
+    names = [atom.name for atom in topology.atoms]
+
+    expected_names = ["C1xx", "H1xx", "H2xx", "H3xx", "H4xx"]
+    assert names == expected_names
+
+
 @pytest.mark.parametrize(
     "suffix, write_fn",
     [
@@ -217,6 +227,9 @@ def test_topology_from_file_mol2(tmp_path):
 
     top_omm = Topology.from_rdkit(mol, "UNK", "A").to_openmm()
 
+    for a in top_omm.atoms():
+        a.name = a.element.symbol
+
     parmed.openmm.load_topology(top_omm).save(str(mol_path))
     top = Topology.from_file(mol_path)
 
@@ -231,6 +244,24 @@ def test_topology_pdb_roundtrip(tmp_path, test_data_dir):
     topology_roundtrip = Topology.from_file(tmp_path / "protein.pdb")
 
     compare_topologies(topology_roundtrip, topology_original)
+
+
+def test_topology_pdb_roundtrip_with_v_sites(tmp_path):
+    topology = Topology()
+    chain = topology.add_chain("A")
+    residue = topology.add_residue("LIG", 1, chain)
+    topology.add_atom("H1", 1, 0, 1, residue)
+    topology.add_atom("Cl1", 17, 0, 2, residue)
+    topology.add_atom("X1", 0, 0, 3, residue)
+
+    pdb_path = tmp_path / "ligand.pdb"
+
+    topology.to_file(pdb_path)
+    topology_roundtrip = Topology.from_file(pdb_path)
+
+    assert topology_roundtrip.atoms[0].symbol == "H"
+    assert topology_roundtrip.atoms[1].symbol == "Cl"
+    assert topology_roundtrip.atoms[2].symbol == "X"
 
 
 def test_topology_select():
