@@ -192,6 +192,16 @@ def test_topology_rdkit_roundtrip():
     assert numpy.allclose(expected_coords, roundtrip_coords)
 
 
+def test_topology_rdkit_unique_names():
+    mol = Chem.AddHs(Chem.MolFromSmiles("C"))
+
+    topology = Topology.from_rdkit(mol, "ABC", "E")
+    names = [atom.name for atom in topology.atoms]
+
+    expected_names = ["C1xx", "H1xx", "H2xx", "H3xx", "H4xx"]
+    assert names == expected_names
+
+
 @pytest.mark.parametrize(
     "suffix, write_fn",
     [
