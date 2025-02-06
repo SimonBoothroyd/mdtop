@@ -14,6 +14,7 @@ def compare_topologies(top_a: Topology, top_b: Topology):
     assert top_a.n_residues == top_b.n_residues
     assert top_a.n_atoms == top_b.n_atoms
     assert top_a.n_bonds == top_b.n_bonds
+    assert top_a.meta == top_b.meta
 
     for chain_orig, chain_rt in zip(top_a.chains, top_b.chains, strict=True):
         assert chain_orig.id == chain_rt.id
@@ -34,11 +35,13 @@ def compare_topologies(top_a: Topology, top_b: Topology):
                 assert atom_orig.atomic_num == atom_rt.atomic_num
                 assert atom_orig.formal_charge == atom_rt.formal_charge
                 assert atom_orig.serial == atom_rt.serial
+                assert atom_orig.meta == atom_rt.meta
 
     for bond_orig, bond_rt in zip(top_a.bonds, top_b.bonds, strict=True):
         assert bond_orig.idx_1 == bond_rt.idx_1
         assert bond_orig.idx_2 == bond_rt.idx_2
         assert bond_orig.order == bond_rt.order
+        assert bond_orig.meta == bond_rt.meta
 
     assert (top_a.xyz is None) == (top_b.xyz is None)
 
@@ -293,6 +296,19 @@ def test_topology_pdb_roundtrip(tmp_path, test_data_dir):
 
     topology_original.to_file(tmp_path / "protein.pdb")
     topology_roundtrip = Topology.from_file(tmp_path / "protein.pdb")
+
+    compare_topologies(topology_roundtrip, topology_original)
+
+
+@pytest.mark.parametrize("format", ["mol", "sdf"])
+def test_topology_sdf_roundtrip(format, tmp_path):
+    mol = Chem.AddHs(Chem.MolFromSmiles("C"))
+
+    topology_original = Topology.from_rdkit(mol, "LIG", "")
+    topology_original.xyz = numpy.zeros((5, 3)) * openmm.unit.angstrom
+
+    topology_original.to_file(tmp_path / f"mol.{format}")
+    topology_roundtrip = Topology.from_file(tmp_path / f"mol.{format}")
 
     compare_topologies(topology_roundtrip, topology_original)
 
