@@ -2,6 +2,7 @@
 
 import collections
 import copy
+import logging
 import pathlib
 import typing
 import warnings
@@ -13,7 +14,10 @@ from mdtop._const import AMINO_ACID_NAMES
 from mdtop._sel import select
 
 if typing.TYPE_CHECKING:
+    from openeye import oechem
     from rdkit import Chem
+
+_LOGGER = logging.getLogger("mdtop")
 
 _RDKIT_EXCLUDED_ATOM_PROPS = {
     "_Name",
@@ -64,6 +68,24 @@ def _set_rd_meta(
             obj.SetBoolProp(key, value)
         elif isinstance(value, int):
             obj.SetIntProp(key, value)
+        else:
+            raise ValueError(f"Unsupported metadata type: {type(value)}")
+
+
+def _set_oe_meta(
+    obj: typing.Union["oechem.OEMol", "oechem.OEAtomBase", "oechem.OEBondBase"],
+    meta: dict[str, str | float | int | bool],
+):
+    """Set metadata on an OpenEye object."""
+    for key, value in meta.items():
+        if isinstance(value, str):
+            obj.SetStringData(key, value)
+        elif isinstance(value, float):
+            obj.SetDoubleData(key, value)
+        elif isinstance(value, bool):
+            obj.SetBoolData(key, value)
+        elif isinstance(value, int):
+            obj.SetIntData(key, value)
         else:
             raise ValueError(f"Unsupported metadata type: {type(value)}")
 
@@ -701,6 +723,186 @@ class Topology:
 
         Chem.SanitizeMol(mol)
         return Chem.Mol(mol)
+
+    @classmethod
+    def from_openeye(cls, mol: "oechem.OEMol") -> "Topology":  # pragma: no cover
+        """Create a topology from an OpenEye molecule.
+
+        Args:
+            mol: The RDKit molecule to convert.
+
+        Returns:
+            The converted topology.
+        """
+        from openeye import oechem
+
+        if oechem.OEHasImplicitHydrogens(mol):
+            assert oechem.OEAddExplicitHydrogens(mol)
+
+        atoms_by_chain = collections.defaultdict(lambda: collections.defaultdict(list))
+
+        res_num_to_name = {}
+        res_num_to_chain_id = {}
+
+        topology = cls()
+
+        for i, atom_oe in enumerate(mol.GetAtoms()):
+            atomic_num = atom_oe.GetAtomicNum()
+            formal_charge = atom_oe.GetFormalCharge()
+
+            name = atom_oe.GetName()
+
+            res_name = ""
+            res_num = 0
+
+            chain_id = ""
+
+            serial = None
+
+            if oechem.OEHasResidue(atom_oe):
+                residue_oe: oechem.OEResidue = oechem.OEAtomGetResidue(atom_oe)
+
+                res_name = residue_oe.GetName()
+                res_num = residue_oe.GetResidueNumber()
+
+                serial = residue_oe.GetSerialNumber()
+
+                chain_id = residue_oe.GetChainID()
+
+            res_num_to_name[res_num] = res_name
+            res_num_to_chain_id[res_num] = chain_id
+
+            assert (
+                res_num not in res_num_to_name
+                or res_name == res_num_to_name[res_num]
+                or chain_id not in res_num_to_chain_id
+                or chain_id != res_num_to_chain_id[res_num]
+            )
+
+            meta = {
+                oechem.OEGetTag(pair.GetTag()): pair.GetData()
+                for pair in atom_oe.GetDataIter()
+                if len(oechem.OEGetTag(pair.GetTag())) > 0
+            }
+
+            atoms_by_chain[chain_id][res_num].append(
+                (i, name, atomic_num, formal_charge, serial, meta)
+            )
+
+        atom_idx_old_to_new = {}
+
+        for chain_id, residues in atoms_by_chain.items():
+            chain = topology.add_chain(chain_id)
+
+            for res_num, atoms in residues.items():
+                residue = topology.add_residue(res_num_to_name[res_num], res_num, chain)
+
+                for (
+                    idx_old,
+                    name,
+                    atomic_num,
+                    formal_charge,
+                    serial,
+                    meta,
+                ) in atoms:
+                    atom = topology.add_atom(
+                        name, atomic_num, formal_charge, serial, residue
+                    )
+                    atom.meta = meta
+
+                    atom_idx_old_to_new[idx_old] = atom.index
+
+        if any(idx_old != idx_new for idx_old, idx_new in atom_idx_old_to_new.items()):
+            _LOGGER.warning("Atoms were re-ordered so residues are contiguous.")
+
+        for bond_oe in mol.GetBonds():
+            idx_1 = atom_idx_old_to_new[bond_oe.GetBgnIdx()]
+            idx_2 = atom_idx_old_to_new[bond_oe.GetEndIdx()]
+
+            order = bond_oe.GetOrder()
+
+            bond = topology.add_bond(idx_1, idx_2, order)
+            bond.meta = {
+                oechem.OEGetTag(pair.GetTag()): pair.GetData()
+                for pair in bond_oe.GetDataIter()
+                if len(oechem.OEGetTag(pair.GetTag())) > 0
+            }
+
+        topology.meta = {
+            oechem.OEGetTag(pair.GetTag()): pair.GetData()
+            for pair in mol.GetDataIter()
+            if len(oechem.OEGetTag(pair.GetTag())) > 0
+        }
+
+        if mol.NumConfs() == 1:
+            coords_dict = mol.GetCoords()
+            topology.xyz = numpy.array([coords_dict[i] for i in range(mol.NumAtoms())])
+        elif mol.NumConfs() > 1:
+            raise NotImplementedError("Multiple conformers are not supported.")
+
+        return topology
+
+    def to_openeye(self) -> "oechem.OEMol":  # pragma: no cover
+        """Convert the Topology to an OpenEye molecule object.
+
+        Notes:
+            * Currently this requires formal charges to be set on the atoms, and
+              formal bond orders to be set on the bonds.
+
+        Returns:
+            The OpenEye molecule.
+        """
+        from openeye import oechem
+
+        mol = oechem.OEMol()
+        atoms_oe = []
+
+        for atom in self.atoms:
+            if atom.formal_charge is None:
+                raise ValueError("Formal charges must be set on all atoms.")
+
+            atom_oe: oechem.OEAtomBase = mol.NewAtom(atom.atomic_num)
+            atom_oe.SetFormalCharge(atom.formal_charge)
+            atom_oe.SetName(atom.name)
+
+            _set_oe_meta(atom_oe, atom.meta)
+
+            res_info = oechem.OEAtomGetResidue(atom_oe)
+            res_info.SetName(atom.residue.name)
+            res_info.SetResidueNumber(atom.residue.seq_num)
+            res_info.SetChainID(atom.residue.chain.id)
+            res_info.SetSerialNumber(atom.serial)
+
+            oechem.OEAtomSetResidue(atom_oe, res_info)
+
+            atoms_oe.append(atom_oe)
+
+        for bond in self.bonds:
+            if bond.order is None:
+                raise ValueError("Formal bond orders must be set on all bonds.")
+
+            bond_oe = mol.NewBond(
+                atoms_oe[bond.idx_1], atoms_oe[bond.idx_2], bond.order
+            )
+            _set_oe_meta(bond_oe, bond.meta)
+
+        if self.xyz is not None:
+            xyz = self.xyz.value_in_unit(openmm.unit.angstrom)
+
+            coords = oechem.OEFloatArray(3 * self.n_atoms)
+
+            for idx, pos in enumerate(xyz):
+                coords[idx * 3] = pos[0]
+                coords[idx * 3 + 1] = pos[1]
+                coords[idx * 3 + 2] = pos[2]
+
+            mol.DeleteConfs()
+            mol.NewConf(coords)
+
+        _set_oe_meta(mol, self.meta)
+
+        oechem.OEFindRingAtomsAndBonds(mol)
+        return mol
 
     @classmethod
     def _from_pdb(cls, path: pathlib.Path) -> "Topology":

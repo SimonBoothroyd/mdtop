@@ -256,6 +256,92 @@ def test_topology_rdkit_unique_names():
     assert names == expected_names
 
 
+def test_topology_oe_roundtrip():
+    pytest.importorskip("openeye")
+
+    from openeye import oechem
+
+    mol: oechem.OEMol = oechem.OEMol()
+    oechem.OESmilesToMol(mol, "O=Cc1ccccc1[N+](=O)[O-]")
+    oechem.OEAddExplicitHydrogens(mol)
+
+    expected_smiles = oechem.OEMolToSmiles(mol)
+    expected_coords = numpy.arange(mol.NumAtoms() * 3).reshape(-1, 3) * 0.1
+
+    mol.DeleteConfs()
+    mol.NewConf(oechem.OEFloatArray(expected_coords.flatten().tolist()))
+
+    mol.SetStringData("MolStrProp", "mol-a")
+    mol.SetDoubleData("MolDblProp", 1.0)
+    mol.SetIntData("MolIntProp", 2)
+    mol.SetBoolData("MolBoolProp", True)
+
+    atom = [*mol.GetAtoms()][0]
+    atom.SetStringData("AtomStrProp", "atom-a")
+    atom.SetDoubleData("AtomDblProp", 3.0)
+    atom.SetIntData("AtomIntProp", 4)
+    atom.SetBoolData("AtomBoolProp", False)
+
+    bond = [*mol.GetBonds()][0]
+    bond.SetStringData("BondStrProp", "bond-a")
+    bond.SetDoubleData("BondDblProp", 5.0)
+    bond.SetIntData("BondIntProp", 6)
+    bond.SetBoolData("BondBoolProp", True)
+
+    topology = Topology.from_openeye(mol)
+
+    assert topology.meta == {
+        "MolStrProp": "mol-a",
+        "MolDblProp": 1.0,
+        "MolIntProp": 2,
+        "MolBoolProp": True,
+    }
+    assert topology.atoms[0].meta == {
+        "AtomStrProp": "atom-a",
+        "AtomDblProp": 3.0,
+        "AtomIntProp": 4,
+        "AtomBoolProp": False,
+    }
+    assert topology.bonds[0].meta == {
+        "BondStrProp": "bond-a",
+        "BondDblProp": 5.0,
+        "BondIntProp": 6,
+        "BondBoolProp": True,
+    }
+
+    roundtrip_mol = topology.to_openeye()
+    roundtrip_smiles = oechem.OEMolToSmiles(roundtrip_mol)
+
+    assert roundtrip_mol.GetStringData("MolStrProp") == "mol-a"
+    assert roundtrip_mol.GetDoubleData("MolDblProp") == 1.0
+    assert roundtrip_mol.GetIntData("MolIntProp") == 2
+    assert roundtrip_mol.GetBoolData("MolBoolProp") is True
+
+    roundtrip_atom = [*roundtrip_mol.GetAtoms()][0]
+    assert roundtrip_atom.GetData("AtomStrProp") == "atom-a"
+    assert roundtrip_atom.GetDoubleData("AtomDblProp") == 3.0
+    assert roundtrip_atom.GetIntData("AtomIntProp") == 4
+    assert roundtrip_atom.GetBoolData("AtomBoolProp") is False
+
+    roundtrip_bond = [*roundtrip_mol.GetBonds()][0]
+    assert roundtrip_bond.GetData("BondStrProp") == "bond-a"
+    assert roundtrip_bond.GetDoubleData("BondDblProp") == 5.0
+    assert roundtrip_bond.GetIntData("BondIntProp") == 6
+    assert roundtrip_bond.GetBoolData("BondBoolProp") is True
+
+    assert expected_smiles == roundtrip_smiles
+
+    assert roundtrip_mol.NumConfs() == 1
+
+    roundtrip_coord_dict = roundtrip_mol.GetCoords()
+    roundtrip_coords = numpy.array(
+        [roundtrip_coord_dict[i] for i in range(roundtrip_mol.NumAtoms())]
+    )
+
+    assert expected_coords.shape == roundtrip_coords.shape
+    assert numpy.allclose(expected_coords, roundtrip_coords)
+
+
 @pytest.mark.parametrize(
     "suffix, write_fn",
     [
