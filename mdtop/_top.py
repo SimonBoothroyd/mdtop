@@ -32,8 +32,13 @@ _RDKIT_EXCLUDED_ATOM_PROPS = {
     "molRxnRole",
     "smilesSymbol",
     "__computedProps",
+    "isImplicit",
 }
 """Exclude 'magic' atom properties when setting metadata from RDKit mols."""
+_RDKIT_EXCLUDED_BOND_PROPS = {
+    "_MolFileBondType",
+}
+"""Exclude 'magic' bond properties when setting metadata from RDKit mols."""
 _RDKIT_EXCLUDED_MOL_PROPS = {
     "MolFileComments",
     "MolFileInfo",
@@ -605,13 +610,17 @@ class Topology:
                 if k not in _RDKIT_EXCLUDED_ATOM_PROPS
             }
 
-        for rd_bond in mol.GetBonds():
+        for bond_rd in mol.GetBonds():
             bond = topology.add_bond(
-                idx_1=rd_bond.GetBeginAtomIdx(),
-                idx_2=rd_bond.GetEndAtomIdx(),
-                order=int(rd_bond.GetBondTypeAsDouble()),
+                idx_1=bond_rd.GetBeginAtomIdx(),
+                idx_2=bond_rd.GetEndAtomIdx(),
+                order=int(bond_rd.GetBondTypeAsDouble()),
             )
-            bond.meta = {**rd_bond.GetPropsAsDict()}
+            bond.meta = {
+                k: v
+                for k, v in bond_rd.GetPropsAsDict().items()
+                if k not in _RDKIT_EXCLUDED_BOND_PROPS
+            }
 
         topology.meta = {
             k: v
@@ -739,7 +748,12 @@ class Topology:
         """Write the topology to a file.
 
         Notes:
-            * Currently PDB files are supported.
+            * Currently PDB, MOL, and SDF files are supported.
+            * SDF / MOL writing requires that all atoms have formal charges set, and
+              all bonds have formal bond orders set, as reading and writing is via
+              RDKit.
+            * Not all metadata will be preserved when writing to files, including
+              residue and chain information.
 
         Args:
             path: The path to write the topology to.
@@ -749,6 +763,12 @@ class Topology:
         if path.suffix.lower() == ".pdb":
             xyz = self.xyz if self.xyz is not None else numpy.zeros((self.n_atoms, 3))
             openmm.app.PDBFile.writeFile(self.to_openmm(), xyz, str(path))
+            return
+        elif path.suffix.lower() in {".mol", ".sdf"}:
+            from rdkit import Chem
+
+            with Chem.SDWriter(str(path)) as writer:
+                writer.write(self.to_rdkit())
             return
 
         raise NotImplementedError(f"{path.suffix} files are not supported.")
