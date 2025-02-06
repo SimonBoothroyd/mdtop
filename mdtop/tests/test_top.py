@@ -173,18 +173,69 @@ def test_topology_omm_roundtrip(test_data_dir):
 
 
 def test_topology_rdkit_roundtrip():
-    mol = Chem.AddHs(Chem.MolFromSmiles("O=Cc1ccccc1[N+](=O)[O-]"))
+    mol: Chem.Mol = Chem.AddHs(Chem.MolFromSmiles("O=Cc1ccccc1[N+](=O)[O-]"))
     assert mol is not None, "Failed to create RDKit molecule from SMILES."
     expected_smiles = Chem.MolToSmiles(mol, canonical=True)
+
+    mol.SetProp("MolStrProp", "mol-a")
+    mol.SetDoubleProp("MolDblProp", 1.0)
+    mol.SetIntProp("MolIntProp", 2)
+    mol.SetBoolProp("MolBoolProp", True)
+
+    atom = mol.GetAtomWithIdx(0)
+    atom.SetProp("AtomStrProp", "atom-a")
+    atom.SetDoubleProp("AtomDblProp", 3.0)
+    atom.SetIntProp("AtomIntProp", 4)
+    atom.SetBoolProp("AtomBoolProp", False)
+
+    bond = mol.GetBondWithIdx(0)
+    bond.SetProp("BondStrProp", "bond-a")
+    bond.SetDoubleProp("BondDblProp", 5.0)
+    bond.SetIntProp("BondIntProp", 6)
+    bond.SetBoolProp("BondBoolProp", True)
 
     AllChem.EmbedMolecule(mol)
     expected_coords = numpy.array(mol.GetConformer().GetPositions())
 
     topology = Topology.from_rdkit(mol, "ABC", "E")
 
+    assert topology.meta == {
+        "MolStrProp": "mol-a",
+        "MolDblProp": 1.0,
+        "MolIntProp": 2,
+        "MolBoolProp": True,
+    }
+    assert topology.atoms[0].meta == {
+        "AtomStrProp": "atom-a",
+        "AtomDblProp": 3.0,
+        "AtomIntProp": 4,
+        "AtomBoolProp": False,
+    }
+    assert topology.bonds[0].meta == {
+        "BondStrProp": "bond-a",
+        "BondDblProp": 5.0,
+        "BondIntProp": 6,
+        "BondBoolProp": True,
+    }
+
     roundtrip_mol = topology.to_rdkit()
     roundtrip_smiles = Chem.MolToSmiles(roundtrip_mol, canonical=True)
     roundtrip_coords = numpy.array(roundtrip_mol.GetConformer().GetPositions())
+
+    assert roundtrip_mol.GetProp("MolStrProp") == "mol-a"
+    assert roundtrip_mol.GetDoubleProp("MolDblProp") == 1.0
+    assert roundtrip_mol.GetIntProp("MolIntProp") == 2
+    assert roundtrip_mol.GetBoolProp("MolBoolProp") is True
+
+    assert roundtrip_mol.GetAtomWithIdx(0).GetProp("AtomStrProp") == "atom-a"
+    assert roundtrip_mol.GetAtomWithIdx(0).GetDoubleProp("AtomDblProp") == 3.0
+    assert roundtrip_mol.GetAtomWithIdx(0).GetIntProp("AtomIntProp") == 4
+    assert roundtrip_mol.GetAtomWithIdx(0).GetBoolProp("AtomBoolProp") is False
+
+    assert roundtrip_mol.GetBondWithIdx(0).GetProp("BondStrProp") == "bond-a"
+    assert roundtrip_mol.GetBondWithIdx(0).GetDoubleProp("BondDblProp") == 5.0
+    assert roundtrip_mol.GetBondWithIdx(0).GetIntProp("BondIntProp") == 6
+    assert roundtrip_mol.GetBondWithIdx(0).GetBoolProp("BondBoolProp") is True
 
     assert expected_smiles == roundtrip_smiles
 
