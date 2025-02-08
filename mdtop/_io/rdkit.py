@@ -30,8 +30,13 @@ _EXCLUDED_ATOM_PROPS = {
     "molRxnRole",
     "smilesSymbol",
     "__computedProps",
+    "isImplicit",
 }
 """Exclude 'magic' atom properties when setting metadata from RDKit mols."""
+_EXCLUDED_BOND_PROPS = {
+    "_MolFileBondType",
+}
+"""Exclude 'magic' bond properties when setting metadata from RDKit mols."""
 _EXCLUDED_MOL_PROPS = {
     "MolFileComments",
     "MolFileInfo",
@@ -60,7 +65,7 @@ def _set_meta(
         elif isinstance(value, int):
             obj.SetIntProp(key, value)
         else:
-            raise ValueError(f"Unsupported metadata type: {type(value)}")
+            raise ValueError(f"Unsupported metadata type for {key}: {value}")
 
 
 def from_rdkit(mol: "Chem.Mol", residue_name: str = "LIG", chain: str = "") -> Topology:
@@ -109,13 +114,17 @@ def from_rdkit(mol: "Chem.Mol", residue_name: str = "LIG", chain: str = "") -> T
             if k not in _EXCLUDED_ATOM_PROPS
         }
 
-    for rd_bond in mol.GetBonds():
+    for bond_rd in mol.GetBonds():
         bond = topology.add_bond(
-            idx_1=rd_bond.GetBeginAtomIdx(),
-            idx_2=rd_bond.GetEndAtomIdx(),
-            order=int(rd_bond.GetBondTypeAsDouble()),
+            idx_1=bond_rd.GetBeginAtomIdx(),
+            idx_2=bond_rd.GetEndAtomIdx(),
+            order=int(bond_rd.GetBondTypeAsDouble()),
         )
-        bond.meta = {**rd_bond.GetPropsAsDict()}
+        bond.meta = {
+            k: v
+            for k, v in bond_rd.GetPropsAsDict().items()
+            if k not in _EXCLUDED_BOND_PROPS
+        }
 
     topology.meta = {
         k: v for k, v in mol.GetPropsAsDict().items() if k not in _EXCLUDED_MOL_PROPS
