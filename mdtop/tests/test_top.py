@@ -528,6 +528,37 @@ def test_topology_subset():
 
 
 @pytest.mark.parametrize(
+    "n_atoms,bonds,expected",
+    [
+        # Single connected component (chain: 0-1-2-3-4)
+        (5, [(0, 1), (1, 2), (2, 3), (3, 4)], [[0, 1, 2, 3, 4]]),
+        # Two disconnected components: 0-1-2 and 3-4
+        (5, [(0, 1), (1, 2), (3, 4)], [[0, 1, 2], [3, 4]]),
+        # No edges: each atom is its own fragment
+        (3, [], [[0], [1], [2]]),
+    ],
+)
+def test_topology_split(n_atoms, bonds, expected):
+    """
+    Tests the find_fragments function with different configurations.
+    """
+    topology = Topology()
+    chain = topology.add_chain("A")
+    residue = topology.add_residue("ALA", 1, "", chain)
+
+    for i in range(n_atoms):
+        topology.add_atom("C", 6, 0, i, residue)
+
+    for bond in bonds:
+        topology.add_bond(*bond, 1)
+
+    frags = topology.split()
+    frags = [sorted(a.serial for a in frag.atoms) for frag in frags]
+
+    assert frags == expected, f"Expected {expected}, got {frags}"
+
+
+@pytest.mark.parametrize(
     "xyz",
     [
         numpy.arange(6).reshape(-1, 3) * openmm.unit.angstrom,
