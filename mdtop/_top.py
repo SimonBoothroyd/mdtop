@@ -1,6 +1,5 @@
 """Topology representations"""
 
-import collections
 import copy
 import logging
 import pathlib
@@ -10,7 +9,6 @@ import warnings
 import numpy
 import openmm.app
 
-from mdtop._const import AMINO_ACID_NAMES
 from mdtop._sel import select
 
 if typing.TYPE_CHECKING:
@@ -19,76 +17,6 @@ if typing.TYPE_CHECKING:
 
 _LOGGER = logging.getLogger("mdtop")
 
-_RDKIT_EXCLUDED_ATOM_PROPS = {
-    "_Name",
-    "_CIPCode",
-    "_CIPRank",
-    "_ChiralityPossible",
-    "_MolFileRLabel",
-    "_ReactionDegreeChanged",
-    "_protected",
-    "dummyLabel",
-    "molAtomMapNumber",
-    "molfileAlias",
-    "molFileValue",
-    "molFileInversionFlag",
-    "molRxnComponent",
-    "molRxnRole",
-    "smilesSymbol",
-    "__computedProps",
-    "isImplicit",
-}
-"""Exclude 'magic' atom properties when setting metadata from RDKit mols."""
-_RDKIT_EXCLUDED_BOND_PROPS = {
-    "_MolFileBondType",
-}
-"""Exclude 'magic' bond properties when setting metadata from RDKit mols."""
-_RDKIT_EXCLUDED_MOL_PROPS = {
-    "MolFileComments",
-    "MolFileInfo",
-    "_MolFileChiralFlag",
-    "_Name",
-    "_smilesAtomOutputOrder",
-    "_smilesBondOutputOrder",
-}
-"""Exclude 'magic' molecule properties when setting metadata from RDKit mols."""
-
-
-def _set_rd_meta(
-    obj: typing.Union["Chem.Mol", "Chem.Atom", "Chem.Bond"],
-    meta: dict[str, str | float | int | bool],
-):
-    """Set metadata on an RDKit object."""
-    for key, value in meta.items():
-        if isinstance(value, str):
-            obj.SetProp(key, value)
-        elif isinstance(value, float):
-            obj.SetDoubleProp(key, value)
-        elif isinstance(value, bool):
-            obj.SetBoolProp(key, value)
-        elif isinstance(value, int):
-            obj.SetIntProp(key, value)
-        else:
-            raise ValueError(f"Unsupported metadata type: {type(value)}")
-
-
-def _set_oe_meta(
-    obj: typing.Union["oechem.OEMol", "oechem.OEAtomBase", "oechem.OEBondBase"],
-    meta: dict[str, str | float | int | bool],
-):
-    """Set metadata on an OpenEye object."""
-    for key, value in meta.items():
-        if isinstance(value, str):
-            obj.SetStringData(key, value)
-        elif isinstance(value, float):
-            obj.SetDoubleData(key, value)
-        elif isinstance(value, bool):
-            obj.SetBoolData(key, value)
-        elif isinstance(value, int):
-            obj.SetIntData(key, value)
-        else:
-            raise ValueError(f"Unsupported metadata type: {type(value)}")
-
 
 def _sanitize_array(
     value: numpy.ndarray | openmm.unit.Quantity | None, shape: tuple[int, int]
@@ -96,7 +24,7 @@ def _sanitize_array(
     """Sanitize an array, converting it to a Quantity with units of Å if necessary."""
 
     if value is None:
-        return
+        return None
     if isinstance(value, openmm.unit.Quantity):
         value = value.value_in_unit(openmm.unit.angstrom)
     if not isinstance(value, numpy.ndarray):
@@ -206,13 +134,15 @@ class Bond:
 class Residue:
     """Represents residues stored in a topology."""
 
-    __slots__ = ("name", "seq_num", "_chain", "_atoms", "_index")
+    __slots__ = ("name", "seq_num", "insertion_code", "_chain", "_atoms", "_index")
 
-    def __init__(self, name: str, seq_num: int):
+    def __init__(self, name: str, seq_num: int, insertion_code: str = ""):
         self.name = name
         """The name of the residue."""
         self.seq_num = seq_num
         """The sequence number of the residue."""
+        self.insertion_code = insertion_code
+        """The insertion code of the residue."""
 
         self._chain: typing.Optional["Chain"] = None
         self._atoms: list[Atom] = []
@@ -245,7 +175,11 @@ class Residue:
         return self._index
 
     def __repr__(self):
-        return f"Residue(name='{self.name}', seq_num={self.seq_num})"
+        return (
+            f"Residue(name='{self.name}', "
+            f"seq_num={self.seq_num} "
+            f"insertion_code='{self.insertion_code}')"
+        )
 
 
 class Chain:
@@ -395,13 +329,16 @@ class Topology:
 
         return chain
 
-    def add_residue(self, name: str, seq_num: int | None, chain: Chain) -> Residue:
+    def add_residue(
+        self, name: str, seq_num: int | None, insertion_code: str, chain: Chain
+    ) -> Residue:
         """Add a new residue to the topology.
 
         Args:
             name: The name of the residue to add
             seq_num: The sequence number of the residue. If ``None``, the index in the
                 topology will be used.
+            insertion_code: The insertion code of the residue.
             chain: The parent chain to add to.
 
         Returns:
@@ -413,7 +350,7 @@ class Topology:
 
         seq_num = int(self.n_residues if seq_num is None else seq_num)
 
-        residue = Residue(name=name, seq_num=seq_num)
+        residue = Residue(name=name, seq_num=seq_num, insertion_code=insertion_code)
         residue._chain = chain
         residue._index = self.n_residues
 
@@ -495,40 +432,9 @@ class Topology:
         Returns:
             The converted topology.
         """
-        topology = cls()
+        from mdtop._io.openmm import from_openmm
 
-        for chain_omm in topology_omm.chains():
-            chain = topology.add_chain(chain_omm.id)
-
-            for residue_omm in chain_omm.residues():
-                residue = topology.add_residue(residue_omm.name, residue_omm.id, chain)
-
-                for atom_omm in residue_omm.atoms():
-                    is_v_site = atom_omm.element is None
-
-                    topology.add_atom(
-                        atom_omm.name,
-                        atom_omm.element.atomic_number if not is_v_site else 0,
-                        None if is_v_site else getattr(atom_omm, "formalCharge", None),
-                        atom_omm.id,
-                        residue,
-                    )
-
-        for bond_omm in topology_omm.bonds():
-            order = bond_omm.order
-
-            if order is None and bond_omm.type is not None:
-                raise NotImplementedError
-
-            topology.add_bond(bond_omm.atom1.index, bond_omm.atom2.index, order)
-
-        if topology_omm.getPeriodicBoxVectors() is not None:
-            box = topology_omm.getPeriodicBoxVectors().value_in_unit(
-                openmm.unit.angstrom
-            )
-            topology.box = numpy.array(box) * openmm.unit.angstrom
-
-        return topology
+        return from_openmm(topology_omm)
 
     def to_openmm(self) -> openmm.app.Topology:
         """Convert the topology to an OpenMM topology.
@@ -536,52 +442,9 @@ class Topology:
         Returns:
             The OpenMM topology.
         """
-        topology_omm = openmm.app.Topology()
+        from mdtop._io.openmm import to_openmm
 
-        atoms_omm = []
-
-        for chain in self.chains:
-            chain_omm = topology_omm.addChain(chain.id)
-
-            for residue in chain.residues:
-                residue_omm = topology_omm.addResidue(
-                    residue.name, chain_omm, str(residue.seq_num)
-                )
-
-                for atom in residue.atoms:
-                    element = (
-                        None
-                        if atom.atomic_num == 0
-                        else openmm.app.Element.getByAtomicNumber(atom.atomic_num)
-                    )
-
-                    atom_omm = topology_omm.addAtom(
-                        atom.name, element, residue_omm, str(atom.serial)
-                    )
-
-                    if hasattr(atom_omm, "formalCharge"):
-                        atom_omm.formalCharge = atom.formal_charge
-
-                    atoms_omm.append(atom_omm)
-
-        bond_order_to_type = {
-            1: openmm.app.Single,
-            2: openmm.app.Double,
-            3: openmm.app.Triple,
-        }
-
-        for bond in self.bonds:
-            topology_omm.addBond(
-                atoms_omm[bond.idx_1],
-                atoms_omm[bond.idx_2],
-                bond_order_to_type[bond.order] if bond.order is not None else None,
-                bond.order,
-            )
-
-        if self.box is not None:
-            topology_omm.setPeriodicBoxVectors(self.box)
-
-        return topology_omm
+        return to_openmm(self)
 
     @classmethod
     def from_rdkit(
@@ -597,64 +460,9 @@ class Topology:
         Returns:
             The converted topology.
         """
-        from rdkit import Chem
+        from mdtop._io.rdkit import from_rdkit
 
-        mol = Chem.AddHs(mol)
-        Chem.Kekulize(mol)
-
-        topology = cls()
-        topology.add_chain(chain)
-        residue = topology.add_residue(residue_name, 1, topology.chains[0])
-
-        symbol_counter = collections.defaultdict(int)
-
-        for atom_rd in mol.GetAtoms():
-            if atom_rd.GetPDBResidueInfo() is not None:
-                name = atom_rd.GetPDBResidueInfo().GetName()
-            elif atom_rd.HasProp("_Name"):
-                name = atom_rd.GetProp("_Name")
-            else:
-                symbol = atom_rd.GetSymbol()
-                symbol_counter[symbol] += 1
-
-                name = f"{symbol}{symbol_counter[symbol]}".ljust(4, "x")
-
-            atom = topology.add_atom(
-                name=name,
-                atomic_num=atom_rd.GetAtomicNum(),
-                formal_charge=atom_rd.GetFormalCharge(),
-                serial=atom_rd.GetIdx() + 1,
-                residue=residue,
-            )
-            atom.meta = {
-                k: v
-                for k, v in atom_rd.GetPropsAsDict().items()
-                if k not in _RDKIT_EXCLUDED_ATOM_PROPS
-            }
-
-        for bond_rd in mol.GetBonds():
-            bond = topology.add_bond(
-                idx_1=bond_rd.GetBeginAtomIdx(),
-                idx_2=bond_rd.GetEndAtomIdx(),
-                order=int(bond_rd.GetBondTypeAsDouble()),
-            )
-            bond.meta = {
-                k: v
-                for k, v in bond_rd.GetPropsAsDict().items()
-                if k not in _RDKIT_EXCLUDED_BOND_PROPS
-            }
-
-        topology.meta = {
-            k: v
-            for k, v in mol.GetPropsAsDict().items()
-            if k not in _RDKIT_EXCLUDED_MOL_PROPS
-        }
-
-        if mol.GetNumConformers() >= 1:
-            xyz = mol.GetConformer().GetPositions()
-            topology.xyz = numpy.array(xyz) * openmm.unit.angstrom
-
-        return topology
+        return from_rdkit(mol, residue_name, chain)
 
     def to_rdkit(self) -> "Chem.Mol":
         """Convert the Topology to an RDKit Mol object.
@@ -666,63 +474,9 @@ class Topology:
         Returns:
             The RDKit Mol object.
         """
-        from rdkit import Chem
+        from mdtop._io.rdkit import to_rdkit
 
-        mol = Chem.RWMol()
-        atoms_rd = []
-
-        for atom in self.atoms:
-            if atom.formal_charge is None:
-                raise ValueError("Formal charges must be set on all atoms.")
-
-            atom_rd = Chem.Atom(atom.atomic_num)
-            atom_rd.SetFormalCharge(atom.formal_charge)
-            atom_rd.SetProp("_Name", atom.name)
-
-            _set_rd_meta(atom_rd, atom.meta)
-
-            res_info = Chem.AtomPDBResidueInfo(
-                atom.name,
-                atom.serial,
-                "",
-                atom.residue.name,
-                atom.residue.seq_num,
-                atom.residue.chain.id,
-                isHeteroAtom=atom.residue.name not in AMINO_ACID_NAMES,
-            )
-            atom_rd.SetPDBResidueInfo(res_info)
-
-            atoms_rd.append(mol.AddAtom(atom_rd))
-
-        bond_order_to_type = {
-            1: Chem.BondType.SINGLE,
-            2: Chem.BondType.DOUBLE,
-            3: Chem.BondType.TRIPLE,
-        }
-        for bond in self.bonds:
-            if bond.order is None:
-                raise ValueError("Formal bond orders must be set on all bonds.")
-            if bond.order not in bond_order_to_type:
-                raise NotImplementedError(f"Bond order {bond.order} is not supported.")
-
-            mol.AddBond(bond.idx_1, bond.idx_2, bond_order_to_type[bond.order])
-
-            bond_rd = mol.GetBondBetweenAtoms(bond.idx_1, bond.idx_2)
-            _set_rd_meta(bond_rd, bond.meta)
-
-        if self.xyz is not None:
-            xyz = self.xyz.value_in_unit(openmm.unit.angstrom)
-            conf = Chem.Conformer(len(atoms_rd))
-
-            for idx, pos in enumerate(xyz):
-                conf.SetAtomPosition(idx, pos)
-
-            mol.AddConformer(conf, assignId=True)
-
-        _set_rd_meta(mol, self.meta)
-
-        Chem.SanitizeMol(mol)
-        return Chem.Mol(mol)
+        return to_rdkit(self)
 
     @classmethod
     def from_openeye(cls, mol: "oechem.OEMol") -> "Topology":  # pragma: no cover
@@ -734,113 +488,10 @@ class Topology:
         Returns:
             The converted topology.
         """
-        from openeye import oechem
 
-        if oechem.OEHasImplicitHydrogens(mol):
-            assert oechem.OEAddExplicitHydrogens(mol)
+        from mdtop._io.openeye import from_openeye
 
-        atoms_by_chain = collections.defaultdict(lambda: collections.defaultdict(list))
-
-        res_num_to_name = {}
-        res_num_to_chain_id = {}
-
-        topology = cls()
-
-        for i, atom_oe in enumerate(mol.GetAtoms()):
-            atomic_num = atom_oe.GetAtomicNum()
-            formal_charge = atom_oe.GetFormalCharge()
-
-            name = atom_oe.GetName()
-
-            res_name = ""
-            res_num = 0
-
-            chain_id = ""
-
-            serial = None
-
-            if oechem.OEHasResidue(atom_oe):
-                residue_oe: oechem.OEResidue = oechem.OEAtomGetResidue(atom_oe)
-
-                res_name = residue_oe.GetName()
-                res_num = residue_oe.GetResidueNumber()
-
-                serial = residue_oe.GetSerialNumber()
-
-                chain_id = residue_oe.GetChainID()
-
-            res_num_to_name[res_num] = res_name
-            res_num_to_chain_id[res_num] = chain_id
-
-            assert (
-                res_num not in res_num_to_name
-                or res_name == res_num_to_name[res_num]
-                or chain_id not in res_num_to_chain_id
-                or chain_id != res_num_to_chain_id[res_num]
-            )
-
-            meta = {
-                oechem.OEGetTag(pair.GetTag()): pair.GetData()
-                for pair in atom_oe.GetDataIter()
-                if len(oechem.OEGetTag(pair.GetTag())) > 0
-            }
-
-            atoms_by_chain[chain_id][res_num].append(
-                (i, name, atomic_num, formal_charge, serial, meta)
-            )
-
-        atom_idx_old_to_new = {}
-
-        for chain_id, residues in atoms_by_chain.items():
-            chain = topology.add_chain(chain_id)
-
-            for res_num, atoms in residues.items():
-                residue = topology.add_residue(res_num_to_name[res_num], res_num, chain)
-
-                for (
-                    idx_old,
-                    name,
-                    atomic_num,
-                    formal_charge,
-                    serial,
-                    meta,
-                ) in atoms:
-                    atom = topology.add_atom(
-                        name, atomic_num, formal_charge, serial, residue
-                    )
-                    atom.meta = meta
-
-                    atom_idx_old_to_new[idx_old] = atom.index
-
-        if any(idx_old != idx_new for idx_old, idx_new in atom_idx_old_to_new.items()):
-            _LOGGER.warning("Atoms were re-ordered so residues are contiguous.")
-
-        for bond_oe in mol.GetBonds():
-            idx_1 = atom_idx_old_to_new[bond_oe.GetBgnIdx()]
-            idx_2 = atom_idx_old_to_new[bond_oe.GetEndIdx()]
-
-            order = bond_oe.GetOrder()
-
-            bond = topology.add_bond(idx_1, idx_2, order)
-            bond.meta = {
-                oechem.OEGetTag(pair.GetTag()): pair.GetData()
-                for pair in bond_oe.GetDataIter()
-                if len(oechem.OEGetTag(pair.GetTag())) > 0
-            }
-
-        topology.meta = {
-            oechem.OEGetTag(pair.GetTag()): pair.GetData()
-            for pair in mol.GetDataIter()
-            if len(oechem.OEGetTag(pair.GetTag())) > 0
-        }
-
-        if mol.NumConfs() == 1:
-            coords_dict = mol.GetCoords()
-            topology.xyz = numpy.array([coords_dict[i] for i in range(mol.NumAtoms())])
-        elif mol.NumConfs() > 1:
-            raise NotImplementedError("Multiple conformers are not supported.")
-
-        return topology
+        return from_openeye(mol)
 
     def to_openeye(self) -> "oechem.OEMol":  # pragma: no cover
         """Convert the Topology to an OpenEye molecule object.
@@ -852,57 +503,9 @@ class Topology:
         Returns:
             The OpenEye molecule.
         """
-        from openeye import oechem
+        from mdtop._io.openeye import to_openeye
 
-        mol = oechem.OEMol()
-        atoms_oe = []
-
-        for atom in self.atoms:
-            if atom.formal_charge is None:
-                raise ValueError("Formal charges must be set on all atoms.")
-
-            atom_oe: oechem.OEAtomBase = mol.NewAtom(atom.atomic_num)
-            atom_oe.SetFormalCharge(atom.formal_charge)
-            atom_oe.SetName(atom.name)
-
-            _set_oe_meta(atom_oe, atom.meta)
-
-            res_info = oechem.OEAtomGetResidue(atom_oe)
-            res_info.SetName(atom.residue.name)
-            res_info.SetResidueNumber(atom.residue.seq_num)
-            res_info.SetChainID(atom.residue.chain.id)
-            res_info.SetSerialNumber(atom.serial)
-
-            oechem.OEAtomSetResidue(atom_oe, res_info)
-
-            atoms_oe.append(atom_oe)
-
-        for bond in self.bonds:
-            if bond.order is None:
-                raise ValueError("Formal bond orders must be set on all bonds.")
-
-            bond_oe = mol.NewBond(
-                atoms_oe[bond.idx_1], atoms_oe[bond.idx_2], bond.order
-            )
-            _set_oe_meta(bond_oe, bond.meta)
-
-        if self.xyz is not None:
-            xyz = self.xyz.value_in_unit(openmm.unit.angstrom)
-
-            coords = oechem.OEFloatArray(3 * self.n_atoms)
-
-            for idx, pos in enumerate(xyz):
-                coords[idx * 3] = pos[0]
-                coords[idx * 3 + 1] = pos[1]
-                coords[idx * 3 + 2] = pos[2]
-
-            mol.DeleteConfs()
-            mol.NewConf(coords)
-
-        _set_oe_meta(mol, self.meta)
-
-        oechem.OEFindRingAtomsAndBonds(mol)
-        return mol
+        return to_openeye(self)
 
     @classmethod
     def _from_pdb(cls, path: pathlib.Path) -> "Topology":
@@ -1066,7 +669,7 @@ class Topology:
                     continue
 
                 residue_new = subset.add_residue(
-                    residue.name, residue.seq_num, chain_new
+                    residue.name, residue.seq_num, "", chain_new
                 )
 
                 for atom in residue.atoms:
@@ -1083,7 +686,7 @@ class Topology:
                     idx_old_to_new[atom.index] = atom_new.index
 
         for bond in self.bonds:
-            if bond.idx_1 not in idxs_unique or bond.idx_2 not in idxs_unique:
+            if bond.idx_1 not in idx_old_to_new or bond.idx_2 not in idx_old_to_new:
                 continue
 
             subset.add_bond(
@@ -1139,7 +742,7 @@ class Topology:
         if xyz_b is None and xyz_a is not None:
             xyz_b = numpy.zeros((other.n_atoms, 3), dtype=float)
 
-        self._chains.extend(other.chains)
+        self._chains.extend(copy.deepcopy(other.chains))
         self._n_atoms += other.n_atoms
         self._n_residues += other.n_residues
 

@@ -6,7 +6,7 @@ import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from mdtop import Atom, Bond, Chain, Residue, Topology
+from mdtop import Atom, Bond, Chain, Residue, Topology, box_to_geometry
 
 
 def compare_topologies(top_a: Topology, top_b: Topology):
@@ -117,7 +117,9 @@ def test_topology_add_chain():
 def test_topology_add_residue():
     topology = Topology()
     chain = topology.add_chain(id_="A")
-    residue = topology.add_residue(name="ALA", seq_num=1, chain=chain)
+    residue = topology.add_residue(
+        name="ALA", seq_num=1, insertion_code="", chain=chain
+    )
     assert len(chain.residues) == 1
     assert residue.name == "ALA"
     assert residue.seq_num == 1
@@ -127,7 +129,9 @@ def test_topology_add_residue():
 def test_topology_add_atom():
     topology = Topology()
     chain = topology.add_chain(id_="A")
-    residue = topology.add_residue(name="ALA", seq_num=1, chain=chain)
+    residue = topology.add_residue(
+        name="ALA", seq_num=1, insertion_code="", chain=chain
+    )
     atom = topology.add_atom(
         name="C", atomic_num=6, formal_charge=0, serial=1, residue=residue
     )
@@ -139,11 +143,15 @@ def test_topology_add_atom():
 def test_topology_add_bond():
     topology = Topology()
     chain = topology.add_chain(id_="A")
-    residue1 = topology.add_residue(name="ALA", seq_num=1, chain=chain)
+    residue1 = topology.add_residue(
+        name="ALA", seq_num=1, insertion_code="", chain=chain
+    )
     atom1 = topology.add_atom(
         name="C", atomic_num=6, formal_charge=0, serial=1, residue=residue1
     )
-    residue2 = topology.add_residue(name="GLY", seq_num=2, chain=chain)
+    residue2 = topology.add_residue(
+        name="GLY", seq_num=2, insertion_code="", chain=chain
+    )
     atom2 = topology.add_atom(
         name="N", atomic_num=7, formal_charge=0, serial=2, residue=residue2
     )
@@ -155,7 +163,7 @@ def test_topology_add_bond():
 def test_topology_invalid_add_bond():
     topology = Topology()
     topology.add_chain("A")
-    topology.add_residue("ALA", seq_num=1, chain=topology.chains[0])
+    topology.add_residue("ALA", seq_num=1, insertion_code="", chain=topology.chains[0])
     topology.add_atom("C", 6, 0, 1, topology.residues[0])
 
     with pytest.raises(ValueError, match="Index 1 is out of range."):
@@ -256,7 +264,7 @@ def test_topology_rdkit_unique_names():
     assert names == expected_names
 
 
-def test_topology_oe_roundtrip():
+def test_topology_oe_roundtrip(tmp_path):
     pytest.importorskip("openeye")
 
     from openeye import oechem
@@ -264,6 +272,23 @@ def test_topology_oe_roundtrip():
     mol: oechem.OEMol = oechem.OEMol()
     oechem.OESmilesToMol(mol, "O=Cc1ccccc1[N+](=O)[O-]")
     oechem.OEAddExplicitHydrogens(mol)
+
+    with oechem.oemolostream(str(tmp_path / "molecule.sdf")) as ofs:
+        oechem.OEWriteMolecule(ofs, mol)
+    with oechem.oemolistream(str(tmp_path / "molecule.sdf")) as ifs:
+        assert oechem.OEReadMolecule(ifs, mol)
+
+    assert oechem.OESetCrystalSymmetry(
+        mol,
+        10.0,
+        20.0,
+        30.0,
+        70.0,
+        80.0,
+        95.0,
+        oechem.OEGetSpaceGroupNumber("P1"),
+        True,
+    )
 
     expected_smiles = oechem.OEMolToSmiles(mol)
     expected_coords = numpy.arange(mol.NumAtoms() * 3).reshape(-1, 3) * 0.1
@@ -289,6 +314,16 @@ def test_topology_oe_roundtrip():
     bond.SetBoolData("BondBoolProp", True)
 
     topology = Topology.from_openeye(mol)
+
+    assert topology.box is not None
+
+    a, b, c, alpha, beta, gamma = box_to_geometry(topology.box)
+    assert numpy.allclose(a, 10.0)
+    assert numpy.allclose(b, 20.0)
+    assert numpy.allclose(c, 30.0)
+    assert numpy.allclose(alpha, 70.0)
+    assert numpy.allclose(beta, 80.0)
+    assert numpy.allclose(gamma, 95.0)
 
     assert topology.meta == {
         "MolStrProp": "mol-a",
@@ -337,6 +372,16 @@ def test_topology_oe_roundtrip():
     roundtrip_coords = numpy.array(
         [roundtrip_coord_dict[i] for i in range(roundtrip_mol.NumAtoms())]
     )
+
+    assert oechem.OEHasCrystalSymmetry(roundtrip_mol)
+    a, b, c, alpha, beta, gamma, *_ = oechem.OEGetCrystalSymmetry(roundtrip_mol)
+
+    assert numpy.allclose(a, 10.0)
+    assert numpy.allclose(b, 20.0)
+    assert numpy.allclose(c, 30.0)
+    assert numpy.allclose(alpha, 70.0)
+    assert numpy.allclose(beta, 80.0)
+    assert numpy.allclose(gamma, 95.0)
 
     assert expected_coords.shape == roundtrip_coords.shape
     assert numpy.allclose(expected_coords, roundtrip_coords)
@@ -402,7 +447,7 @@ def test_topology_sdf_roundtrip(format, tmp_path):
 def test_topology_pdb_roundtrip_with_v_sites(tmp_path):
     topology = Topology()
     chain = topology.add_chain("A")
-    residue = topology.add_residue("LIG", 1, chain)
+    residue = topology.add_residue("LIG", 1, "", chain)
     topology.add_atom("H1", 1, 0, 1, residue)
     topology.add_atom("Cl1", 17, 0, 2, residue)
     topology.add_atom("X1", 0, 0, 3, residue)
@@ -421,7 +466,7 @@ def test_topology_select():
     topology = Topology()
 
     chain_a = topology.add_chain("A")
-    res_a = topology.add_residue("ALA", 1, chain_a)
+    res_a = topology.add_residue("ALA", 1, "", chain_a)
     topology.add_atom("C1", 6, 0, 1, res_a)
 
     selection = topology.select("c. A and r. ALA")
@@ -432,7 +477,7 @@ def test_topology_select_amber():
     topology = Topology()
 
     chain_a = topology.add_chain("A")
-    res_a = topology.add_residue("ACE", 1, chain_a)
+    res_a = topology.add_residue("ACE", 1, "", chain_a)
     topology.add_atom("H1", 1, 0, 1, res_a)
     topology.add_atom("CH3", 6, 0, 2, res_a)
     topology.add_atom("H2", 1, 0, 3, res_a)
@@ -448,19 +493,19 @@ def test_topology_subset():
     topology = Topology()
 
     chain_a = topology.add_chain("A")
-    res_a = topology.add_residue("ALA", 1, chain_a)
+    res_a = topology.add_residue("ALA", 1, "", chain_a)
     topology.add_atom("C1", 6, 0, 1, res_a)
     topology.add_atom("C2", 6, 0, 2, res_a)
-    res_b = topology.add_residue("MET", 2, chain_a)
+    res_b = topology.add_residue("MET", 2, "", chain_a)
     topology.add_atom("C3", 6, 0, 3, res_b)
     topology.add_atom("C4", 6, 0, 4, res_b)
-    topology.add_residue("TYR", 2, chain_a)
+    topology.add_residue("TYR", 2, "", chain_a)
 
     chain_b = topology.add_chain("B")
-    res_d = topology.add_residue("GLY", 3, chain_b)
+    res_d = topology.add_residue("GLY", 3, "", chain_b)
     topology.add_atom("C5", 6, 0, 5, res_d)
     chain_c = topology.add_chain("C")
-    res_e = topology.add_residue("SER", 4, chain_c)
+    res_e = topology.add_residue("SER", 4, "", chain_c)
     topology.add_atom("C6", 6, 0, 6, res_e)
 
     topology.add_bond(0, 1, 1)
@@ -494,7 +539,7 @@ def test_topology_subset():
 def test_topology_xyz_setter(xyz):
     topology = Topology()
     topology.add_chain("A")
-    topology.add_residue("ALA", 1, topology.chains[-1])
+    topology.add_residue("ALA", 1, "", topology.chains[-1])
     topology.add_atom("C", 6, 0, 1, topology.residues[-1])
     topology.add_atom("C", 6, 0, 2, topology.residues[-1])
     topology.xyz = xyz
@@ -547,12 +592,12 @@ def test_topology_box_setter(box):
 def test_topology_merge():
     topology1 = Topology()
     topology1.add_chain(id_="A")
-    topology1.add_residue("ALA", 1, topology1.chains[0])
+    topology1.add_residue("ALA", 1, "", topology1.chains[0])
     topology1.add_atom("C", 6, 0, 1, topology1.residues[-1])
-    topology1.add_residue("GLY", 2, topology1.chains[0])
+    topology1.add_residue("GLY", 2, "", topology1.chains[0])
     topology1.add_atom("N", 7, 0, 2, topology1.residues[-1])
     topology1.add_chain(id_="B")
-    topology1.add_residue("SER", 1, topology1.chains[1])
+    topology1.add_residue("SER", 1, "", topology1.chains[1])
     topology1.add_atom("O", 8, 0, 3, topology1.residues[-1])
     topology1.add_bond(0, 1, 1)
     topology1.xyz = (
@@ -561,9 +606,9 @@ def test_topology_merge():
 
     topology2 = Topology()
     topology2.add_chain(id_="C")
-    topology2.add_residue("VAL", 1, topology2.chains[0])
+    topology2.add_residue("VAL", 1, "", topology2.chains[0])
     topology2.add_atom("CA", 6, 0, 1, topology2.residues[-1])
-    topology2.add_residue("GLU", 2, topology2.chains[0])
+    topology2.add_residue("GLU", 2, "", topology2.chains[0])
     topology2.add_atom("CB", 6, 0, 2, topology2.residues[-1])
     topology2.add_bond(0, 1, 1)
     topology2.xyz = None
@@ -614,14 +659,14 @@ def test_topology_merge():
 def test_topology_merge_with_b_coords():
     topology1 = Topology()
     topology1.add_chain(id_="A")
-    topology1.add_residue("ALA", 1, topology1.chains[0])
+    topology1.add_residue("ALA", 1, "", topology1.chains[0])
     topology1.add_atom("C", 6, 0, 1, topology1.residues[-1])
     topology1.add_atom("N", 7, 0, 2, topology1.residues[-1])
     topology1.xyz = None
 
     topology2 = Topology()
     topology2.add_chain(id_="C")
-    topology2.add_residue("ALA", 1, topology2.chains[0])
+    topology2.add_residue("ALA", 1, "", topology2.chains[0])
     topology2.add_atom("CA", 6, 0, 1, topology2.residues[-1])
     topology2.xyz = numpy.array([[1.0, 2.0, 3.0]]) * openmm.unit.angstrom
 
@@ -638,13 +683,13 @@ def test_topology_merge_with_b_coords():
 def test_topology_add():
     topology1 = Topology()
     topology1.add_chain(id_="A")
-    topology1.add_residue("ALA", 1, topology1.chains[0])
+    topology1.add_residue("ALA", 1, "", topology1.chains[0])
     topology1.add_atom("C", 6, 0, 1, topology1.residues[-1])
     topology1.xyz = numpy.array([[1.0, 2.0, 3.0]]) * openmm.unit.angstrom
 
     topology2 = Topology()
     topology2.add_chain(id_="C")
-    topology2.add_residue("ALA", 1, topology2.chains[0])
+    topology2.add_residue("ALA", 1, "", topology2.chains[0])
     topology2.add_atom("CA", 6, 0, 1, topology2.residues[-1])
     topology2.xyz = numpy.array([[4.0, 5.0, 6.0]]) * openmm.unit.angstrom
 
@@ -672,7 +717,7 @@ def test_topology_slice(mocker, item, expected):
 
     topology = Topology()
     topology.add_chain("A")
-    topology.add_residue("ALA", 1, topology.chains[-1])
+    topology.add_residue("ALA", 1, "", topology.chains[-1])
 
     for i in range(10):
         topology.add_atom("C", 6, 0, i + 1, topology.residues[-1])
@@ -691,14 +736,16 @@ def test_topology_slice(mocker, item, expected):
 def test_repr():
     topology = Topology()
     topology.add_chain("A")
-    topology.add_residue("ALA", 1, topology.chains[-1])
+    topology.add_residue("ALA", 1, "", topology.chains[-1])
     topology.add_atom("C", 6, 0, 1, topology.residues[-1])
     topology.add_atom("C", 6, 0, 2, topology.residues[-1])
     topology.add_bond(0, 1, 1)
 
     assert repr(topology) == "Topology(n_chains=1, n_residues=1, n_atoms=2)"
     assert repr(topology.chains[0]) == "Chain(id='A')"
-    assert repr(topology.residues[0]) == "Residue(name='ALA', seq_num=1)"
+    assert (
+        repr(topology.residues[0]) == "Residue(name='ALA', seq_num=1 insertion_code='')"
+    )
     assert (
         repr(topology.atoms[0])
         == "Atom(name='C', atomic_num=6, formal_charge=0, serial=1)"

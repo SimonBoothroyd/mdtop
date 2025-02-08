@@ -9,6 +9,7 @@ except importlib.metadata.PackageNotFoundError:  # pragma: no cover
 
 from mdtop._const import AMINO_ACID_NAMES, ION_RES_NAMES, WATER_RES_NAMES
 from mdtop._top import Atom, Bond, Chain, Residue, Topology
+from mdtop._utils import box_from_geometry, box_to_geometry
 
 __all__ = [
     "__version__",
@@ -20,4 +21,6 @@ __all__ = [
     "Chain",
     "Residue",
     "Topology",
+    "box_from_geometry",
+    "box_to_geometry",
 ]

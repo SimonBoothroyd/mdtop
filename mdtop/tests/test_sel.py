@@ -154,7 +154,7 @@ def test_dist_to_y(expr: str, expected_sel: numpy.ndarray):
     top = Topology()
 
     chain = top.add_chain("A")
-    res = top.add_residue("UNK", 1, chain)
+    res = top.add_residue("UNK", 1, "", chain)
 
     top.add_atom("C", 0, 0, 1, res)
     top.add_atom("O", 0, 0, 1, res)
@@ -195,7 +195,7 @@ def test_x_dist_to_y(expr: str, expected_sel: numpy.ndarray):
     top = Topology()
 
     chain = top.add_chain("A")
-    res = top.add_residue("UNK", 1, chain)
+    res = top.add_residue("UNK", 1, "", chain)
 
     top.add_atom("C", 0, 0, 1, res)
     top.add_atom("O", 0, 0, 1, res)
