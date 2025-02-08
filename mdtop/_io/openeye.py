@@ -64,9 +64,7 @@ def _extract_meta(
     return meta
 
 
-def _find_atoms(
-    mol: "oechem.OEMol",
-):
+def _find_atoms(mol: "oechem.OEMol"):
     """Find atoms in the OpenEye molecule, and partition them by chain and residue."""
     from openeye import oechem
 
@@ -105,7 +103,7 @@ def _find_atoms(
     return atoms_by_chain, res_lookup
 
 
-def from_openeye(mol: "oechem.OEMol") -> "Topology":  # pragma: no cover
+def from_openeye(mol: "oechem.OEMol") -> "Topology":
     """Create a topology from an OpenEye molecule.
 
     Args:
@@ -173,7 +171,7 @@ def from_openeye(mol: "oechem.OEMol") -> "Topology":  # pragma: no cover
     return topology
 
 
-def to_openeye(topology: Topology) -> "oechem.OEMol":  # pragma: no cover
+def to_openeye(topology: Topology) -> "oechem.OEMol":
     """Convert the Topology to an OpenEye molecule object.
 
     Notes:

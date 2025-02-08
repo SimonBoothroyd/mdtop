@@ -27,7 +27,7 @@ select = ["B","C","E","F","W","B9"]
 ignore-init-module-imports = true
 
 [tool.coverage.run]
-omit = ["**/tests/*"]
+omit = ["**/tests/*","mdtop/_io/openeye.py"]
 
 [tool.coverage.report]
 exclude_lines = [
