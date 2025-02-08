@@ -1,5 +1,6 @@
 """Topology representations"""
 
+import collections
 import copy
 import logging
 import pathlib
@@ -697,6 +698,52 @@ class Topology:
         subset.xyz = None if self.xyz is None else self.xyz[idxs]
 
         return subset
+
+    def split(self) -> list["Topology"]:
+        """Split the topology into multiple topologies, such that bound atoms are
+        in the same topology.
+
+        This is useful, for example, when your topology contains multiple ligands,
+        and you want to split them into separate topologies.
+
+        Returns:
+            An list of the split topologies.
+        """
+
+        open_list = set(range(self.n_atoms))
+        closed_list = set()
+
+        neighs = {idx: set() for idx in range(self.n_atoms)}
+
+        for bond in self.bonds:
+            neighs[bond.idx_1].add(bond.idx_2)
+            neighs[bond.idx_2].add(bond.idx_1)
+
+        frags = []
+
+        while len(open_list) > 0:
+            idx = open_list.pop()
+
+            queue = collections.deque([idx])
+            frag = []
+
+            closed_list.add(idx)
+
+            while len(queue) > 0:
+                idx = queue.popleft()
+                frag.append(idx)
+
+                for neigh in neighs[idx]:
+                    if neigh in closed_list:
+                        continue
+
+                    queue.append(neigh)
+                    closed_list.add(neigh)
+
+            frags.append(frag)
+            open_list -= set(frag)
+
+        return [self.subset(frag) for frag in frags]
 
     @classmethod
     def merge(cls, *topologies: "Topology") -> "Topology":
