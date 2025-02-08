@@ -553,7 +553,12 @@ class Topology:
         """Write the topology to a file.
 
         Notes:
-            * Currently PDB files are supported.
+            * Currently PDB, MOL, and SDF files are supported.
+            * SDF / MOL writing requires that all atoms have formal charges set, and
+              all bonds have formal bond orders set, as reading and writing is via
+              RDKit.
+            * Not all metadata will be preserved when writing to files, including
+              residue and chain information.
 
         Args:
             path: The path to write the topology to.
@@ -563,6 +568,12 @@ class Topology:
         if path.suffix.lower() == ".pdb":
             xyz = self.xyz if self.xyz is not None else numpy.zeros((self.n_atoms, 3))
             openmm.app.PDBFile.writeFile(self.to_openmm(), xyz, str(path))
+            return
+        elif path.suffix.lower() in {".mol", ".sdf"}:
+            from rdkit import Chem
+
+            with Chem.SDWriter(str(path)) as writer:
+                writer.write(self.to_rdkit())
             return
 
         raise NotImplementedError(f"{path.suffix} files are not supported.")
