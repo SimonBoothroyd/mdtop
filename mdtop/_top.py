@@ -387,7 +387,7 @@ class Topology:
         if residue.topology != self:
             raise ValueError(f"{residue} does not belong to this topology.")
 
-        serial = int(self.n_atoms if serial is None else serial)
+        serial = int(residue.chain.n_atoms if serial is None else serial)
 
         atom = Atom(
             name=name, atomic_num=atomic_num, formal_charge=formal_charge, serial=serial
@@ -449,21 +449,21 @@ class Topology:
 
     @classmethod
     def from_rdkit(
-        cls, mol: "Chem.Mol", residue_name: str = "LIG", chain: str = ""
+        cls, mol: "Chem.Mol", default_residue_name: str = "", default_chain_id: str = ""
     ) -> "Topology":
         """Create a topology from an RDKit molecule.
 
         Args:
             mol: The RDKit molecule to convert.
-            residue_name: The residue name to use for the ligand.
-            chain: The chain ID to use for the ligand.
+            default_residue_name: The default residue name to use if one is not found.
+            default_chain_id: The default chain ID to use if one is not found.
 
         Returns:
             The converted topology.
         """
         from mdtop._io.rdkit import from_rdkit
 
-        return from_rdkit(mol, residue_name, chain)
+        return from_rdkit(mol, default_residue_name, default_chain_id)
 
     def to_rdkit(self) -> "Chem.Mol":
         """Convert the Topology to an RDKit Mol object.

@@ -435,7 +435,7 @@ def test_topology_pdb_roundtrip(tmp_path, test_data_dir):
 def test_topology_sdf_roundtrip(format, tmp_path):
     mol = Chem.AddHs(Chem.MolFromSmiles("C"))
 
-    topology_original = Topology.from_rdkit(mol, "LIG", "")
+    topology_original = Topology.from_rdkit(mol, "", "")
     topology_original.xyz = numpy.zeros((5, 3)) * openmm.unit.angstrom
 
     topology_original.to_file(tmp_path / f"mol.{format}")

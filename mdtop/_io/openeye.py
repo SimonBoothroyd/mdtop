@@ -15,13 +15,14 @@ if typing.TYPE_CHECKING:
 _LOGGER = logging.getLogger("mdtop")
 
 
-_EXCLUDED_ATOM_PROPS = set()
+_EXCLUDED_ATOM_PROPS = {"MDLAtomParity", "_sampledHydrogen_"}
 """Exclude 'magic' atom properties when setting metadata from OpenEye mols."""
 _EXCLUDED_MOL_PROPS = {
     "OE_unit_cell",
     "OE_spacegroup",
     "OE_spacegroup_name",
     "OE_symm_enabled",
+    "SDTagData",
 }
 
 
@@ -69,7 +70,6 @@ def _find_atoms(mol: "oechem.OEMol"):
     from openeye import oechem
 
     atoms_by_chain = collections.defaultdict(lambda: collections.defaultdict(list))
-    res_lookup = {}
 
     for i, atom_oe in enumerate(mol.GetAtoms()):
         atomic_num = atom_oe.GetAtomicNum()
@@ -92,15 +92,12 @@ def _find_atoms(mol: "oechem.OEMol"):
 
         res_key = (res_name, res_num, insertion_code)
 
-        assert res_key not in res_lookup or res_name == res_lookup[res_key]
-        res_lookup[(chain_id, res_num, insertion_code)] = res_name
-
         meta = _extract_meta(atom_oe, _EXCLUDED_ATOM_PROPS)
-        atoms_by_chain[chain_id][(res_num, insertion_code)].append(
+        atoms_by_chain[chain_id][res_key].append(
             (i, name, atomic_num, formal_charge, serial, meta)
         )
 
-    return atoms_by_chain, res_lookup
+    return atoms_by_chain
 
 
 def from_openeye(mol: "oechem.OEMol") -> "Topology":
@@ -117,7 +114,7 @@ def from_openeye(mol: "oechem.OEMol") -> "Topology":
     if oechem.OEHasImplicitHydrogens(mol):
         assert oechem.OEAddExplicitHydrogens(mol)
 
-    atoms_by_chain, res_lookup = _find_atoms(mol)
+    atoms_by_chain = _find_atoms(mol)
     atom_idx_old_to_new = {}
 
     topology = Topology()
@@ -125,9 +122,8 @@ def from_openeye(mol: "oechem.OEMol") -> "Topology":
     for chain_id, residues in atoms_by_chain.items():
         chain = topology.add_chain(chain_id)
 
-        for (res_num, insertion_code), atoms in residues.items():
-            res_name = res_lookup[(chain_id, res_num, insertion_code)]
-            res = topology.add_residue(res_name, res_num, insertion_code, chain)
+        for (res_name, res_num, insertion_code), atoms in residues.items():
+            res = topology.add_residue(res_name, res_num, str(insertion_code), chain)
 
             for idx_old, name, atomic_num, formal_charge, serial, meta in atoms:
                 atom = topology.add_atom(name, atomic_num, formal_charge, serial, res)
